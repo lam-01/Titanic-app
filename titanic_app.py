@@ -11,7 +11,7 @@ with st.expander("Data Preprocessing") :
 
 # Đọc dữ liệu
     df = pd.read_csv("titanic.csv")
-st.write(f"**Kích thước dữ liệu :** {df.shape}")
+    st.write(f"**Kích thước dữ liệu :** {df.shape}")
 
 # Kiểm tra giá trị thiếu
     missing_values_before = df.isnull().sum()
