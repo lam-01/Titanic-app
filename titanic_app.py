@@ -5,9 +5,9 @@ import plotly.express as px
 
 # Đọc dữ liệu kích thước tập dữ liệu
 split_info = {
-    "Train": len(pd.read_csv("G:/ML/MLFlow/train.csv")),
-    "Validation": len(pd.read_csv("G:/ML/MLFlow/valid.csv")),
-    "Test": len(pd.read_csv("G:/ML/MLFlow/test.csv"))
+    "Train": len(pd.read_csv("train.csv")),
+    "Validation": len(pd.read_csv("valid.csv")),
+    "Test": len(pd.read_csv("test.csv"))
 }
 
 # Chuyển đổi thành DataFrame để trực quan hóa
