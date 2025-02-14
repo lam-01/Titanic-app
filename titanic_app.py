@@ -23,12 +23,12 @@ fig = px.bar(df_split, x="Dataset", y="Size", title="Tổng quan về dữ liệ
 st.plotly_chart(fig)
 
 # Hiển thị ma trận tương quan
-df_train = pd.read_csv("G:/ML/MLFlow/train.csv")
+df_train = pd.read_csv("train.csv")
 corr_matrix = df_train.corr(numeric_only=True)
 fig_corr = px.imshow(corr_matrix, text_auto=True, title="Ma trận tương quan ")
 st.plotly_chart(fig_corr)
 # Hiển thị kết quả huấn luyện mô hình
-with open("G:/ML/MLFlow/model_results.txt", "r") as f:
+with open("model_results.txt", "r") as f:
     model_results = f.read()
 st.write("**Model Training Results:**")
 st.text(model_results)
