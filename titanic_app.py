@@ -7,7 +7,7 @@ from sklearn.preprocessing import LabelEncoder
 
 st.title("Titanic App 🤖")
 # Tiền xử lý dữ liệu
-with st.expander("Data preprocessing") : 
+with st.expander("Data Preprocessing") : 
 
 # Đọc dữ liệu
     df = pd.read_csv("titanic.csv")
