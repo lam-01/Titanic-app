@@ -70,6 +70,6 @@ with st.expander("Data Visualization") :
     # Hiển thị kết quả huấn luyện mô hình
     with open("model_results.txt", "r") as f:
         model_results = f.read()
-    st.write("**Model Training Results:**")
+    st.write("**Model Training Results (Random Forest ) :**")
     st.text(model_results)
 
