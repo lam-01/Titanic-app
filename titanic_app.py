@@ -67,7 +67,7 @@ with st.expander("Data Visualization") :
     fig_corr = px.imshow(corr_matrix, text_auto=True, title="Ma trận tương quan ")
     st.plotly_chart(fig_corr)
     # Hiển thị kết quả huấn luyện mô hình
-    with open("G:/ML/MLFlow/model_results.txt", "r") as f:
+    with open("model_results.txt", "r") as f:
         model_results = f.read()
     st.write("**Model Training Results:**")
     st.text(model_results)
