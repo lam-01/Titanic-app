@@ -1,6 +1,6 @@
 import pandas as pd
 import numpy as np
-from sklearn.model_selection import train_test_split, cross_val_score
+from sklearn.model_selection import train_test_split, cross_val_predict
 from sklearn.preprocessing import StandardScaler, PolynomialFeatures
 from sklearn.linear_model import LogisticRegression
 from sklearn.impute import SimpleImputer
@@ -8,7 +8,7 @@ import mlflow
 import mlflow.sklearn
 import streamlit as st
 import plotly.express as px
-from sklearn.metrics import accuracy_score, confusion_matrix, classification_report
+from sklearn.metrics import mean_squared_error, r2_score
 import os
 
 class TitanicAnalyzer:
@@ -158,7 +158,7 @@ def create_streamlit_app():
     with tab2:
             st.header("Dự đoán khả năng sống sót trên tàu Titanic")
 
-            data_path = "titanic.csv"  # Đường dẫn cố định
+            data_path = "G:/ML/MLFlow/my_env/titanic.csv"  # Đường dẫn cố định
             analyzer = TitanicAnalyzer()
             data = analyzer.load_and_preprocess(data_path)
                     
@@ -203,41 +203,49 @@ def create_streamlit_app():
                         y_pred_test = analyzer.model.predict(X_test)
                     
                     # Calculate metrics
-                    train_accuracy = accuracy_score(y_train, y_pred_train)
-                    valid_accuracy = accuracy_score(y_valid, y_pred_valid)
-                    test_accuracy = accuracy_score(y_test, y_pred_test)
+                    
+                    mse_train = mean_squared_error(y_train, y_pred_train)
+                    r2_train = r2_score(y_train, y_pred_train)
+                    mse_valid = mean_squared_error(y_valid, y_pred_valid)
+                    r2_valid = r2_score(y_valid, y_pred_valid)
+                    mse_test = mean_squared_error(y_test, y_pred_test)
+                    r2_test = r2_score(y_test, y_pred_test)
                     
                     # Cross-validation
-                    cv_scores = cross_val_score(analyzer.model, X_train, y_train, cv=5)
-                    cv_accuracy = np.mean(cv_scores)
+                    y_pred_cv = cross_val_predict(analyzer.model, X_train, y_train, cv=5)
+                    mse_cv=mean_squared_error(y_train,y_pred_cv)
+                    # r2_cv = r2_score(y_train, y_pred_cv)
+
                     
                     # Log metrics
                     mlflow.log_metrics({
-                        "train_accuracy": train_accuracy,
-                        "valid_accuracy": valid_accuracy,
-                        "test_accuracy": test_accuracy,
-                        "cv_accuracy": cv_accuracy
+                        "train_mse": mse_train,
+                        "valid_mse": mse_valid,
+                        "test_mse": mse_test,
+                        # "train_r2": r2_train,
+                        # "valid_r2": r2_valid,
+                        # "test_r2": r2_test,
+                        # "cv_r2": r2_cv,
+                        "cv_mse":mse_cv
                     })
                     
                     # Display results
                     st.write("**🟢 Huấn luyện mô hình**")
                     st.write("**Kết quả huấn luyện**")
-                    col1, col2, col3, col4 = st.columns(4)
-                    col1.metric("Train Accuracy", f"{train_accuracy:.4f}")
-                    col2.metric("Validation Accuracy", f"{valid_accuracy:.4f}")
-                    col3.metric("Test Accuracy", f"{test_accuracy:.4f}")
-                    col4.metric("CV Accuracy", f"{cv_accuracy:.4f}")
+                     
+                    col1, col2 = st.columns(2)
+                    col1.metric("MSE (Train)", f"{mse_train:.4f}")
+                    # col2.metric("R² Score (Train)", f"{r2_train:.4f}")
+
+                    col1.metric("MSE (Validation)", f"{mse_valid:.4f}")
+                    # col2.metric("R² Score (Validation)", f"{r2_valid:.4f}")
+
+                    col1.metric("MSE (Test)", f"{mse_test:.4f}")
+                    # col2.metric("R² Score (Test)", f"{r2_test:.4f}")
+
+                    col1.metric("MSE (Cross-Validation)", f"{mse_cv:.4f}")  # Hiển thị R² CV mới
+
                     
-                    # Confusion matrix
-                    st.write("**Confusion Matrix**")
-                    conf_matrix = confusion_matrix(y_valid, y_pred_valid)
-                    fig = px.imshow(conf_matrix, text_auto=True, labels=dict(x="Predicted", y="Actual"), x=['Not Survived', 'Survived'], y=['Not Survived', 'Survived'])
-                    st.plotly_chart(fig)
-                    
-                    # Classification report
-                    st.write("**Classification Report**")
-                    report = classification_report(y_valid, y_pred_valid, output_dict=True)
-                    st.table(pd.DataFrame(report).transpose())
         
         # Prediction interface
             st.subheader("Prediction Interface")
