@@ -56,7 +56,7 @@ class TitanicAnalyzer:
             st.write("**4. Chuyển đổi biến phân loại**")
             self.data['Sex'] = (self.data['Sex'] == 'female').astype(int)
             self.feature_columns.append('Sex')
-            st.write("Dữ liệu sau khi chuyển đổi 'Sex':", self.data[['Sex']].head())
+            st.write("Dữ liệu sau khi chuyển đổi 'Sex': male:0 - female: 1 ", self.data[['Sex']].head())
             
             # One-hot encoding cho Embarked
             st.write("**5. One-hot encoding cho Embarked**")
