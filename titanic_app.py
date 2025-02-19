@@ -27,7 +27,7 @@ class TitanicAnalyzer:
             st.header("**📚Tiền xử lý dữ liệu**")
             
             # Đọc dữ liệu
-            st.write("**1. Đọc dữ liệu **")
+            st.write("**1. Đọc dữ liệu**")
             self.data = pd.read_csv(data_path)
             mlflow.log_param("initial_data_shape", self.data.shape)
             st.write("Dữ liệu ban đầu:", self.data.head())
