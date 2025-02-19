@@ -2,13 +2,13 @@ import pandas as pd
 import numpy as np
 from sklearn.model_selection import train_test_split, cross_val_score
 from sklearn.preprocessing import StandardScaler, PolynomialFeatures
-from sklearn.linear_model import LinearRegression
+from sklearn.linear_model import LogisticRegression
 from sklearn.impute import SimpleImputer
 import mlflow
 import mlflow.sklearn
 import streamlit as st
 import plotly.express as px
-from sklearn.metrics import mean_squared_error, r2_score
+from sklearn.metrics import accuracy_score, confusion_matrix, classification_report
 import os
 
 class TitanicAnalyzer:
@@ -21,62 +21,111 @@ class TitanicAnalyzer:
         self.is_fitted = False
     
     def load_and_preprocess(self, data_path):
-        """Đọc và tiền xử lý dữ liệu"""
+        """Đọc và tiền xử lý dữ liệu với MLflow"""
         try:
+            mlflow.start_run()
+            st.write("**🟢 Tiền xử lý dữ liệu**")
+            
             # Đọc dữ liệu
+            st.write("**1. Đọc dữ liệu từ file CSV**")
             self.data = pd.read_csv(data_path)
+            mlflow.log_param("initial_data_shape", self.data.shape)
+            st.write("Dữ liệu ban đầu:", self.data.head())
             
             # Xử lý missing values
+            st.write("**2. Xử lý giá trị bị thiếu bằng phương pháp trung bình**")
+            st.write("\n- Điền giá trị thiếu trong 'Age' bằng giá trị trung bình.\n- Điền giá trị thiếu trong 'Embarked' bằng giá trị xuất hiện nhiều nhất.")
+            missing_values_before = self.data.isnull().sum().sum()
+            st.write("Số lượng dữ liệu bị thiếu : ")
+            st.write(self.data.isnull().sum().T)
             imputer = SimpleImputer(strategy='mean')
             self.data[self.feature_columns] = imputer.fit_transform(self.data[self.feature_columns])
+            missing_values_after = self.data.isnull().sum().sum()
+            mlflow.log_metric("missing_values_before", missing_values_before)
+            mlflow.log_metric("missing_values_after", missing_values_after)
+            st.write("Dữ liệu sau khi xử lý :", self.data.head())
+
+            # Xóa các cột không cần thiết
+            st.write("**3. Xóa các cột không cần thiết: Cabin, Name, Ticket**")
+            st.write("\n- Xóa cột 'Name' (Tên hành khách không ảnh hướng trực tiếp đến sống sót hay không).\n- Xóa cột 'Ticket' (Số vé là một chuỗi ký tự không mang nhiều ý nghĩa rõ ràng đối với mô hình dự đoán).\n- Xóa cột 'Cabin' (Dữ liệu bị thiếu quá nhiều ,rất nhiều hành khách không có thông tin về cabin).")
+            self.data.drop(columns=['Cabin', 'Name', 'Ticket'], inplace=True, errors='ignore')
+            mlflow.log_param("after_column_removal_shape", self.data.shape)
+            st.write("Dữ liệu sau khi xóa cột:", self.data.head())
             
             # Chuyển đổi biến categorical
+            st.write("**4. Chuyển đổi biến phân loại**")
             self.data['Sex'] = (self.data['Sex'] == 'female').astype(int)
             self.feature_columns.append('Sex')
+            st.write("Dữ liệu sau khi chuyển đổi 'Sex':", self.data[['Sex']].head())
             
             # One-hot encoding cho Embarked
+            st.write("**5. One-hot encoding**")
             embarked_dummies = pd.get_dummies(self.data['Embarked'], prefix='Embarked')
             self.data = pd.concat([self.data, embarked_dummies], axis=1)
             self.feature_columns.extend(embarked_dummies.columns)
+            mlflow.log_param("one_hot_encoded_columns", list(embarked_dummies.columns))
+            st.write("Dữ liệu sau khi one-hot encoding:", self.data.head())
             
+            mlflow.end_run()
             return self.data
             
         except Exception as e:
-            st.error(f"Error in preprocessing: {str(e)}")
+            st.error(f"Lỗi khi tiền xử lý dữ liệu: {str(e)}")
+            mlflow.end_run(status='FAILED')
             return None
-    
+
     def split_data(self, train_size=0.7, valid_size=0.15):
-        """Chia dữ liệu thành tập train/valid/test"""
+        """Chia dữ liệu thành tập train/valid/test và chuẩn hóa"""
         try:
-            test_size = 1 - train_size - valid_size
-            
-            X = self.data[self.feature_columns]
-            y = self.data['Survived']
-            
-            # Split thành train và temp
-            X_train, X_temp, y_train, y_temp = train_test_split(
-                X, y, train_size=train_size, random_state=42)
-            
-            # Split temp thành valid và test
-            valid_ratio = valid_size / (valid_size + test_size)
-            X_valid, X_test, y_valid, y_test = train_test_split(
-                X_temp, y_temp, train_size=valid_ratio, random_state=42)
-            
-            # Khởi tạo và fit scaler với training data
-            self.scaler = StandardScaler()
-            X_train_scaled = self.scaler.fit_transform(X_train)
-            X_valid_scaled = self.scaler.transform(X_valid)
-            X_test_scaled = self.scaler.transform(X_test)
-            
-            self.is_fitted = True
-            
-            return (X_train_scaled, X_valid_scaled, X_test_scaled,
-                    y_train, y_valid, y_test)
-                    
+            with mlflow.start_run(run_name="Data_Splitting"):
+                
+                st.write("**🟢 Chia dữ liệu thành tập train/valid/test**")
+                
+                test_size = 1 - train_size - valid_size
+                st.write(f"🔸 Tỉ lệ: Train = {train_size}, Valid = {valid_size}, Test = {test_size}")
+                
+                X = self.data[self.feature_columns]
+                y = self.data['Survived']
+                
+                # Split thành train và temp
+                st.write("**1. Chia dữ liệu thành tập train và tập tạm thời**")
+                X_train, X_temp, y_train, y_temp = train_test_split(X, y, train_size=train_size, random_state=42)
+                st.write(f"🔹 Kích thước tập train: {X_train.shape}")
+                
+                # Split temp thành valid và test
+                valid_ratio = valid_size / (valid_size + test_size)
+                st.write("**2. Chia tập tạm thời thành tập validation và test**")
+                X_valid, X_test, y_valid, y_test = train_test_split(X_temp, y_temp, train_size=valid_ratio, random_state=42)
+                st.write(f"🔸 Kích thước tập valid: {X_valid.shape}")
+                st.write(f"🔸 Kích thước tập test: {X_test.shape}")
+                
+                # Khởi tạo và fit scaler với training data
+                st.write("**3. Chuẩn hóa dữ liệu bằng StandardScaler**")
+                self.scaler = StandardScaler()
+                X_train_scaled = self.scaler.fit_transform(X_train)
+                X_valid_scaled = self.scaler.transform(X_valid)
+                X_test_scaled = self.scaler.transform(X_test)
+                
+                st.write("📊 **Dữ liệu sau khi chuẩn hóa (5 dòng đầu tiên):**")
+                st.write(pd.DataFrame(X_train_scaled[:5], columns=self.feature_columns))
+                
+                self.is_fitted = True
+                
+                # Log thông tin vào MLflow
+                mlflow.log_param("train_size", X_train.shape)
+                mlflow.log_param("valid_size", X_valid.shape)
+                mlflow.log_param("test_size", X_test.shape)
+                mlflow.log_param("scaling_method", "StandardScaler")
+                mlflow.end_run()
+                
+                return (X_train_scaled, X_valid_scaled, X_test_scaled, y_train, y_valid, y_test)
+                        
         except Exception as e:
-            st.error(f"Error in splitting data: {str(e)}")
+            mlflow.log_param("status", "FAILED")
+            st.error(f"❌ Lỗi khi chia dữ liệu: {str(e)}")
+            mlflow.end_run(status='FAILED')
             return None
-    
+
     def predict_survival(self, input_data):
         """Dự đoán cho dữ liệu mới"""
         try:
@@ -93,8 +142,7 @@ class TitanicAnalyzer:
             else:
                 prediction = self.model.predict(input_scaled)[0]
             
-            # Clip prediction to [0, 1]
-            return max(min(prediction, 1), 0)
+            return prediction
             
         except Exception as e:
             st.error(f"Error in prediction: {str(e)}")
@@ -103,88 +151,108 @@ class TitanicAnalyzer:
 def create_streamlit_app():
     st.title("Titanic Survival Analysis")
     
-    # Sidebar menu
-    st.sidebar.title("Menu")
-    menu_option = st.sidebar.radio("Chọn chức năng:", ["Các phương pháp xử lí ", "Dự đoán","Mlflow"])
-    
-    if menu_option == "Các phương pháp xử lí ":
-        st.header("Các phương pháp xử lí titanic.csv")
-        st.write("""
-        - **Xử lý missing values**: Sử dụng SimpleImputer để điền giá trị trung bình cho các cột số.
-        - **Chuyển đổi biến categorical**: Chuyển đổi cột 'Sex' thành binary (0 cho male, 1 cho female).
-        - **One-hot encoding**: Áp dụng one-hot encoding cho cột 'Embarked'.
-        - **Chuẩn hóa dữ liệu**: Sử dụng StandardScaler để chuẩn hóa dữ liệu.
-        """)
-    
-    elif menu_option == "Dự đoán":
-        st.header("Dự đoán khả năng sống sót trên tàu Titanic")
+    # Sử dụng st.tabs để tạo thanh menu
+    tab2, tab3 = st.tabs([ "🔍 Huấn luyện và Dự đoán", "🚀 MLflow"])
+    analyzer = TitanicAnalyzer()
         
-        uploaded_file = st.file_uploader("Upload Titanic dataset", type="csv")
-        analyzer = TitanicAnalyzer()
-        
-        if uploaded_file is not None:
-            # Load và preprocess data
-            data = analyzer.load_and_preprocess(uploaded_file)
-            
-            if data is not None:
-                st.success("Data loaded and preprocessed successfully!")
-                
-                # Parameters
-                st.sidebar.header("Training Parameters")
-                train_size = st.sidebar.slider("Training Set Size", 0.5, 0.8, 0.7)
-                valid_size = st.sidebar.slider("Validation Set Size", 0.1, 0.25, 0.15)
-                degree = st.sidebar.selectbox("Polynomial Degree", [1, 2, 3])
-                
-                if st.button("Train Model"):
-                    # Split data
-                    splits = analyzer.split_data(train_size, valid_size)
+    with tab2:
+            st.header("Dự đoán khả năng sống sót trên tàu Titanic")
+
+            data_path = "G:/ML/MLFlow/my_env/titanic.csv"  # Đường dẫn cố định
+            analyzer = TitanicAnalyzer()
+            data = analyzer.load_and_preprocess(data_path)
                     
-                    if splits is not None:
-                        X_train, X_valid, X_test, y_train, y_valid, y_test = splits
+            # Parameters
+            st.sidebar.header("Training Parameters")
+            train_size = st.sidebar.slider("Training Set Size", 0.5, 0.8, 0.7)
+            valid_size = st.sidebar.slider("Validation Set Size", 0.1, 0.25, 0.15)
+            degree = st.sidebar.selectbox("Polynomial Degree", [1, 2, 3])
+            
+            st.write("Train Model")
+                # Split data
+            splits = analyzer.split_data(train_size, valid_size)
+                
+            if splits is not None:
+                X_train, X_valid, X_test, y_train, y_valid, y_test = splits
+                
+                with mlflow.start_run():
+                    # Train model
+                    if degree > 1:
+                        analyzer.poly = PolynomialFeatures(degree=degree)
+                        X_train_poly = analyzer.poly.fit_transform(X_train)
+                        X_valid_poly = analyzer.poly.transform(X_valid)
+                        X_test_poly = analyzer.poly.transform(X_test)
                         
-                        with mlflow.start_run():
-                            # Train model
-                            if degree > 1:
-                                analyzer.poly = PolynomialFeatures(degree=degree)
-                                X_train_poly = analyzer.poly.fit_transform(X_train)
-                                X_valid_poly = analyzer.poly.transform(X_valid)
-                                
-                                analyzer.model = LinearRegression()
-                                analyzer.model.fit(X_train_poly, y_train)
-                                y_pred = analyzer.model.predict(X_valid_poly)
-                            else:
-                                analyzer.model = LinearRegression()
-                                analyzer.model.fit(X_train, y_train)
-                                y_pred = analyzer.model.predict(X_valid)
-                            
-                            # Calculate metrics
-                            mse = mean_squared_error(y_valid, y_pred)
-                            r2 = r2_score(y_valid, y_pred)
-                            
-                            # Log metrics
-                            mlflow.log_metrics({
-                                "mse": mse,
-                                "r2": r2
-                            })
-                            
-                            # Display results
-                            st.subheader("Training Results")
-                            col1, col2 = st.columns(2)
-                            col1.metric("MSE", f"{mse:.4f}")
-                            col2.metric("R2 Score", f"{r2:.4f}")
-                            
-                            # Plot
-                            fig = px.scatter(
-                                x=y_valid, y=y_pred,
-                                labels={'x': 'Actual', 'y': 'Predicted'},
-                                title='Actual vs Predicted Values'
-                            )
-                            st.plotly_chart(fig)
-                
-                # Prediction interface
-                st.subheader("Prediction Interface")
+                        analyzer.model = LogisticRegression()
+                        analyzer.model.fit(X_train_poly, y_train)
+                        # Dự đoán
+                        y_pred_train = analyzer.model.predict(X_train_poly)
+                        y_pred_valid = analyzer.model.predict(X_valid_poly)
+                        y_pred_test = analyzer.model.predict(X_test_poly)
+                    else:
+                        analyzer.model = LogisticRegression()
+                        analyzer.model.fit(X_train, y_train)
+                    
+                    # Luwu mô hình vào session_state
+                        st.session_state['model'] = analyzer.model
+                        st.session_state['scaler'] = analyzer.scaler
+                        st.session_state['poly'] = analyzer.poly
+                    # Dự đoán
+                        y_pred_train = analyzer.model.predict(X_train)
+                        y_pred_valid = analyzer.model.predict(X_valid)
+                        y_pred_test = analyzer.model.predict(X_test)
+                    
+                    # Calculate metrics
+                    train_accuracy = accuracy_score(y_train, y_pred_train)
+                    valid_accuracy = accuracy_score(y_valid, y_pred_valid)
+                    test_accuracy = accuracy_score(y_test, y_pred_test)
+                    
+                    # Cross-validation
+                    cv_scores = cross_val_score(analyzer.model, X_train, y_train, cv=5)
+                    cv_accuracy = np.mean(cv_scores)
+                    
+                    # Log metrics
+                    mlflow.log_metrics({
+                        "train_accuracy": train_accuracy,
+                        "valid_accuracy": valid_accuracy,
+                        "test_accuracy": test_accuracy,
+                        "cv_accuracy": cv_accuracy
+                    })
+                    
+                    # Display results
+                    st.write("**🟢 Huấn luyện mô hình**")
+                    st.write("**Kết quả huấn luyện**")
+                    col1, col2, col3, col4 = st.columns(4)
+                    col1.metric("Train Accuracy", f"{train_accuracy:.4f}")
+                    col2.metric("Validation Accuracy", f"{valid_accuracy:.4f}")
+                    col3.metric("Test Accuracy", f"{test_accuracy:.4f}")
+                    col4.metric("CV Accuracy", f"{cv_accuracy:.4f}")
+                    
+                    # Confusion matrix
+                    st.write("**Confusion Matrix**")
+                    conf_matrix = confusion_matrix(y_valid, y_pred_valid)
+                    fig = px.imshow(conf_matrix, text_auto=True, labels=dict(x="Predicted", y="Actual"), x=['Not Survived', 'Survived'], y=['Not Survived', 'Survived'])
+                    st.plotly_chart(fig)
+                    
+                    # Classification report
+                    st.write("**Classification Report**")
+                    report = classification_report(y_valid, y_pred_valid, output_dict=True)
+                    st.table(pd.DataFrame(report).transpose())
+        
+        # Prediction interface
+            st.subheader("Prediction Interface")
+            # Kiểm tra nếu mô hình đã huấn luyện trước khi dự đoán
+            if 'model' in st.session_state:
+                analyzer.model = st.session_state['model']
+                analyzer.scaler = st.session_state['scaler']
+                analyzer.poly = st.session_state['poly']
+                analyzer.is_fitted = True
+            else:
+                st.error("Vui lòng huấn luyện mô hình trước khi dự đoán!")
+
+            if analyzer.is_fitted:
                 col1, col2 = st.columns(2)
-                
+            
                 with col1:
                     pclass = st.selectbox("Passenger Class", [1, 2, 3])
                     age = st.number_input("Age", 0, 100, 30)
@@ -196,31 +264,30 @@ def create_streamlit_app():
                     fare = st.number_input("Fare", 0.0, 500.0, 32.0)
                     embarked = st.selectbox("Port of Embarkation", ['C', 'Q', 'S'])
                 
-                if st.button("Predict"):
-                    # Create input DataFrame
-                    input_data = pd.DataFrame({
-                        'Pclass': [pclass],
-                        'Age': [age],
-                        'SibSp': [sibsp],
-                        'Parch': [parch],
-                        'Fare': [fare],
-                        'Sex': [1 if sex == 'female' else 0],
-                        'Embarked_C': [1 if embarked == 'C' else 0],
-                        'Embarked_Q': [1 if embarked == 'Q' else 0],
-                        'Embarked_S': [1 if embarked == 'S' else 0]
-                    })
-                    
-                    # Make prediction
-                    survival_prob = analyzer.predict_survival(input_data)
-                    
-                    if survival_prob is not None:
-                        st.write(f"Survival Probability: {survival_prob:.2%}")
-    elif menu_option=="Mlflow":
-        # Tiêu đề
-        st.title("Titanic Survival Analysis with MLflow")
+            if st.button("Predict"):
+                # Create input DataFrame
+                input_data = pd.DataFrame({
+                    'Pclass': [pclass],
+                    'Age': [age],
+                    'SibSp': [sibsp],
+                    'Parch': [parch],
+                    'Fare': [fare],
+                    'Sex': [1 if sex == 'female' else 0],
+                    'Embarked_C': [1 if embarked == 'C' else 0],
+                    'Embarked_Q': [1 if embarked == 'Q' else 0],
+                    'Embarked_S': [1 if embarked == 'S' else 0]
+                })
+                
+                # Make prediction
+                survival_prediction = analyzer.predict_survival(input_data)
+                
+                if survival_prediction is not None:
+                    st.success(f"Dự đoán : {'Survived' if survival_prediction == 1 else 'Not Survived'}")
+
+    with tab3:
         # Hiển thị MLflow Tracking UI trong iframe
         mlflow_url = "http://localhost:5000"  # Thay đổi nếu chạy trên server khác
-        st.markdown(f'<iframe src="{mlflow_url}" width="100%" height="600"></iframe>', unsafe_allow_html=True)                    
+        st.markdown(f'<iframe src="{mlflow_url}" width="800" height="400"></iframe>', unsafe_allow_html=True)
 
 if __name__ == "__main__":
     create_streamlit_app()
