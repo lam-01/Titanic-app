@@ -231,20 +231,14 @@ def create_streamlit_app():
                     
                     # Display results
                     st.write("**🟢 Huấn luyện mô hình**")
-                    st.write("**Kết quả huấn luyện**")
-                     
-                    col1, col2 = st.columns(2)
-                    col1.metric("MSE (Train)", f"{mse_train:.4f}")
-                    # col2.metric("R² Score (Train)", f"{r2_train:.4f}")
+                    results_df = pd.DataFrame({
+                        "Metric": ["MSE (Train)", "MSE (Validation)", "MSE (Test)", "MSE (Cross-Validation)"],
+                        "Value": [mse_train, mse_valid, mse_test, mse_cv]
+                    })
 
-                    col1.metric("MSE (Validation)", f"{mse_valid:.4f}")
-                    # col2.metric("R² Score (Validation)", f"{r2_valid:.4f}")
-
-                    col1.metric("MSE (Test)", f"{mse_test:.4f}")
-                    # col2.metric("R² Score (Test)", f"{r2_test:.4f}")
-
-                    col1.metric("MSE (Cross-Validation)", f"{mse_cv:.4f}")  # Hiển thị R² CV mới
-
+                    # Hiển thị bảng trong Streamlit
+                    st.write("### 📊 Kết quả đánh giá mô hình")
+                    st.table(results_df)
                     
         
         # Prediction interface
