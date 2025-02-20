@@ -33,7 +33,7 @@ class TitanicAnalyzer:
             st.write("Dữ liệu ban đầu:", self.data.head())
             
             # Xử lý missing values
-            st.write("**2. Xử lý giá trị bị thiếu bằng phương pháp trung bình**")
+            st.write("**2. Xử lý giá trị bị thiếu**")
             st.write("\n- Điền giá trị thiếu trong 'Age' bằng giá trị trung bình.\n- Điền giá trị thiếu trong 'Embarked' bằng giá trị xuất hiện nhiều nhất.")
             missing_values_before = self.data.isnull().sum().sum()
             st.write("Số lượng dữ liệu bị thiếu : ")
