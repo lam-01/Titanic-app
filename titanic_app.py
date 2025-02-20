@@ -237,7 +237,6 @@ def create_streamlit_app():
                     
                     # Display results
                     st.header("**📊 Huấn luyện mô hình**")
-                    st.image("d3.jpg")
                     st.write("**. Đánh giá mô hình**")
                     st.write("- MSE (Mean Squared Error) là Sai số bình phương trung bình là một chỉ số đánh giá hiệu suất của mô hình hồi quy, đo lường mức độ sai lệch giữa giá trị thực tế và giá trị dự đoán.")
                     st.write("Công thức của MSE :")
