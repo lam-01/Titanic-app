@@ -95,13 +95,11 @@ class TitanicAnalyzer:
                 y = self.data['Survived']
                 
                 # Split thành train và temp
-                st.write("**1. Chia dữ liệu thành tập train và temp**")
                 X_train, X_temp, y_train, y_temp = train_test_split(X, y, train_size=train_size, random_state=42)
                 st.write(f"🔹 Kích thước tập train: {X_train.shape}")
                 
                 # Split temp thành valid và test
                 valid_ratio = valid_size / (valid_size + test_size)
-                st.write("**2. Chia tập temp thành tập validation và test**")
                 X_valid, X_test, y_valid, y_test = train_test_split(X_temp, y_temp, train_size=valid_ratio, random_state=42)
                 st.write(f"🔸 Kích thước tập valid: {X_valid.shape}")
                 st.write(f"🔸 Kích thước tập test: {X_test.shape}")
