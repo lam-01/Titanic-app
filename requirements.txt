@@ -1,4 +1,4 @@
 plotly
 scikit-learn
 mlflow
-opencv
+cv2
