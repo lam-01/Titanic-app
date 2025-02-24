@@ -1,506 +1,330 @@
-import streamlit as st
+import pandas as pd
+import numpy as np
+from sklearn.model_selection import train_test_split, cross_val_predict
+from sklearn.preprocessing import StandardScaler, PolynomialFeatures
+from sklearn.linear_model import LinearRegression
+from sklearn.impute import SimpleImputer
 import mlflow
 import mlflow.sklearn
-import numpy as np
-import cv2
-from sklearn.datasets import fetch_openml
-from sklearn.model_selection import train_test_split
-from sklearn.tree import DecisionTreeClassifier, plot_tree
-from sklearn.svm import SVC
-from sklearn.metrics import accuracy_score
-from streamlit_drawable_canvas import st_canvas
-import pandas as pd
-import matplotlib.pyplot as plt
-import seaborn as sns
-from sklearn.metrics.pairwise import cosine_similarity
-from streamlit_tags import st_tags
-import io
+import streamlit as st
+import plotly.express as px
+from sklearn.metrics import mean_squared_error, r2_score
 import os
-import tempfile
 
-# Tạo selectbox để chọn dự án
-option = st.sidebar.selectbox(
-    "📌 Chọn một dự án để thực hiện:",
-    ["Phân tích Titanic", "MNIST"]
-)
-
-# Hiển thị nội dung tương ứng với lựa chọn
-if option == "Phân tích Titanic":
-    st.write("🚢 **Bạn đã chọn dự án: Phân tích dữ liệu Titanic!**")
-    # Thêm code phân tích dữ liệu Titanic tại đây
-
-elif option == "MNIST":
-# 📌 Tải và xử lý dữ liệu MNIST từ OpenML
-    @st.cache_data
-    def load_data():
-        mnist = fetch_openml("mnist_784", version=1, as_frame=False)
-        X, y = mnist.data, mnist.target.astype(int)  # Chuyển nhãn về kiểu số nguyên
-        X = X / 255.0  # Chuẩn hóa về [0,1]
-        return X, y
-
-    # 📌 Chia dữ liệu thành train, validation, và test
-    def split_data(X, y, train_size=0.7, val_size=0.15, test_size=0.15, random_state=42):
-        """
-        Chia dữ liệu thành 3 tập: train, validation, và test.
-
-        """
-        # Chia tập train và tập tạm (temp)
-        X_train, X_temp, y_train, y_temp = train_test_split(
-            X, y, train_size=train_size, random_state=random_state
-        )
-        
-        # Chia tập tạm thành validation và test
-        val_ratio = val_size / (val_size + test_size)
-        X_val, X_test, y_val, y_test = train_test_split(
-            X_temp, y_temp, train_size=val_ratio, random_state=random_state
-        )
-        
-        return X_train, X_val, X_test, y_train, y_val, y_test
-
-    # 📌 Huấn luyện mô hình
-    def train_model(model_name, X_train, X_val, X_test, y_train, y_val, y_test):
-        if model_name == "Decision Tree":
-            model = DecisionTreeClassifier(
-                    max_depth=15,           
-                    min_samples_split=5,    
-                    min_samples_leaf=2,     
-                    random_state=42
-                
-            )
-        elif model_name == "SVM":
-            model = SVC(kernel="linear", probability=True)
-        else:
-            raise ValueError("Invalid model selected!")
-
-        model.fit(X_train, y_train)
-
-        y_train_pred =model.predict(X_train)
-        y_test_pred = model.predict(X_test)
-        y_val_pred = model.predict(X_val)
-        # Tính độ chính xác
-        train_accuracy = accuracy_score(y_train, y_train_pred)
-        val_accuracy = accuracy_score(y_val, y_val_pred)
-        test_accuracy = accuracy_score(y_test, y_test_pred)
-        
-        # Lưu mô hình vào MLFlow
-        with mlflow.start_run(run_name="MNIST_Classification"):
-            mlflow.log_param("model_name", model_name)
-            mlflow.log_metric("train_accuracy", train_accuracy)
-            mlflow.log_metric("val_accuracy", val_accuracy)
-            mlflow.log_metric("test_accuracy", test_accuracy)
-            mlflow.sklearn.log_model(model, model_name)
-        
-        return model, train_accuracy, val_accuracy, test_accuracy
-
-    # 📌 Xử lý ảnh tải lên
-    def preprocess_uploaded_image(image):
-        image = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-        image = cv2.resize(image, (28, 28))
-        image = image / 255.0
-        return image.reshape(1, -1)
-
-    # 📌 Xử lý ảnh từ vẽ tay trên canvas
-    def preprocess_canvas_image(canvas):
-        image = np.array(canvas)
-        image = cv2.cvtColor(image, cv2.COLOR_RGBA2GRAY)
-        image = cv2.bitwise_not(image)
-        image = cv2.resize(image, (28, 28))
-        image = image / 255.0
-        return image.reshape(1, -1)
-
-    def show_sample_images(X, y):
-        st.write("**🖼️ Một vài mẫu dữ liệu từ MNIST**")
-        fig, axes = plt.subplots(1, 10, figsize=(15, 3))
-        for digit in range(10):
-            idx = np.where(y == digit)[0][0]
-            ax = axes[digit]
-            ax.imshow(X[idx].reshape(28, 28), cmap='gray')
-            ax.set_title(f"{digit}")
-            ax.axis('off')
-        st.pyplot(fig)
-
-        
-    # 📌 So sánh các số có tính tương đồng
-    def show_similar_digits(X, y):
-        st.write("**🔍 So sánh các số tương đồng và dễ gây nhầm lẫn**")
-        # Cho phép người dùng chọn số tham chiếu
-        reference_number = st.selectbox("Chọn số tham chiếu (0-9):", options=list(range(10)))
-        
-        # Lấy tất cả các mẫu của số tham chiếu
-        reference_indices = np.where(y == reference_number)[0]
-        
-        # Chọn ngẫu nhiên một mẫu từ số tham chiếu
-        reference_idx = np.random.choice(reference_indices)
-        reference_image = X[reference_idx].reshape(1, -1)
-        
-        # Tính toán cosine similarity giữa ảnh tham chiếu và toàn bộ tập dữ liệu
-        similarities = cosine_similarity(reference_image, X)[0]
-        
-        # Lọc ra các ảnh không phải là số tham chiếu
-        non_reference_indices = np.where(y != reference_number)[0]
-        non_reference_similarities = similarities[non_reference_indices]
-        
-        # Lấy chỉ số của 5 ảnh có độ tương đồng cao nhất (không phải số tham chiếu)
-        top_similar_indices = non_reference_indices[np.argsort(non_reference_similarities)[-5:][::-1]]
-        
-        # Hiển thị ảnh tham chiếu và các ảnh tương đồng
-        st.write(f"Số tham chiếu: {reference_number}")
-        fig, axes = plt.subplots(1, 6, figsize=(15, 3))
-        
-        # Hiển thị ảnh tham chiếu
-        axes[0].imshow(reference_image.reshape(28, 28), cmap='gray')
-        axes[0].set_title(f"Tham chiếu: {reference_number}")
-        axes[0].axis('off')
-        
-        # Hiển thị các ảnh tương đồng
-        for i, idx in enumerate(top_similar_indices, start=1):
-            axes[i].imshow(X[idx].reshape(28, 28), cmap='gray')
-            axes[i].set_title(f"Giống: {similarities[idx]:.2f}\nSố: {y[idx]}")
-            axes[i].axis('off')
-        
-        st.pyplot(fig)
-        
-        # Giải thích sự nhầm lẫn
-        st.write(f"**❗Số {reference_number}** có thể bị nhầm lẫn với các số trên do hình dạng tương tự, chẳng hạn như nét cong, độ dày nét, hoặc cấu trúc chung.")
-
-
-    # Hàm xử lý ảnh theo lựa chọn của người dùng
-    def preprocess_image(image, methods):
-        processed_image = image.copy()
-
-        if "Gaussian Blur" in methods:
-            processed_image = cv2.GaussianBlur(processed_image, (3, 3), 0)
-
-        if "Sobel" in methods:
-            sobelx = cv2.Sobel(processed_image, cv2.CV_64F, 1, 0, ksize=3)
-            sobely = cv2.Sobel(processed_image, cv2.CV_64F, 0, 1, ksize=3)
-            processed_image = np.sqrt(sobelx**2 + sobely**2)
-            processed_image = np.uint8(processed_image / processed_image.max() * 255)
-
-        if "Binarization" in methods:
-            _, processed_image = cv2.threshold(processed_image, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
-
-        return processed_image
-    def display_mlflow_experiments():
+class TitanicAnalyzer:
+    def __init__(self):
+        self.data = None
+        self.model = None
+        self.scaler = None  # Sẽ khởi tạo sau khi có dữ liệu
+        self.poly = None
+        self.feature_columns = ['Pclass', 'Age', 'SibSp', 'Parch', 'Fare']
+        self.is_fitted = False
+    
+    def load_and_preprocess(self, data_path):
+        """Đọc và tiền xử lý dữ liệu với MLflow"""
         try:
-            # Lấy danh sách các thí nghiệm từ MLflow
-            experiments = mlflow.list_experiments()
+            mlflow.start_run()
+            st.write("##### **📚Tiền xử lý dữ liệu**")
             
-            if experiments:
-                st.write("#### Danh sách thí nghiệm")
-                experiment_data = []
-                for exp in experiments:
-                    experiment_data.append({
-                        "Experiment ID": exp.experiment_id,
-                        "Experiment Name": exp.name,
-                        "Artifact Location": exp.artifact_location
-                    })
-                st.dataframe(pd.DataFrame(experiment_data))
-                
-                # Chọn thí nghiệm để xem chi tiết
-                selected_exp_id = st.selectbox(
-                    "🔍 Chọn thí nghiệm để xem chi tiết",
-                    options=[exp.experiment_id for exp in experiments]
-                )
-                
-                # Lấy danh sách runs trong thí nghiệm đã chọn
-                runs = mlflow.search_runs(selected_exp_id)
-                if not runs.empty:
-                    st.write("#### Danh sách runs")
-                    st.dataframe(runs)
-                    
-                    # Chọn run để xem chi tiết
-                    selected_run_id = st.selectbox(
-                        "🔍 Chọn run để xem chi tiết",
-                        options=runs["run_id"]
-                    )
-                    
-                    # Hiển thị chi tiết run
-                    run = mlflow.get_run(selected_run_id)
-                    st.write("##### Thông tin run")
-                    st.write(f"**Run ID:** {run.info.run_id}")
-                    st.write(f"**Experiment ID:** {run.info.experiment_id}")
-                    st.write(f"**Start Time:** {run.info.start_time}")
-                    
-                    # Hiển thị metrics
-                    st.write("##### Metrics")
-                    st.json(run.data.metrics)
-                    
-                    # Hiển thị params
-                    st.write("##### Params")
-                    st.json(run.data.params)
-                    
-                    # Hiển thị artifacts
-                    artifacts = mlflow.list_artifacts(selected_run_id)
-                    if artifacts:
-                        st.write("##### Artifacts")
-                        for artifact in artifacts:
-                            st.write(f"- {artifact.path}")
-                    else:
-                        st.write("Không có artifacts nào.")
-                else:
-                    st.warning("Không có runs nào trong thí nghiệm này.")
-            else:
-                st.warning("Không có thí nghiệm nào được tìm thấy.")
+            # Đọc dữ liệu
+            st.write("**1. Đọc dữ liệu**")
+            self.data = pd.read_csv(data_path)
+            mlflow.log_param("initial_data_shape", self.data.shape)
+            st.write("Dữ liệu ban đầu:", self.data.head())
+            
+            # Xử lý missing values
+            st.write("**2. Xử lý giá trị bị thiếu**")
+            st.write("- Các cột dữ liệu bị thiếu: Age, Cabin, Embarked")
+            missing_values_before = self.data.isnull().sum()
+            st.write("Số lượng dữ liệu bị thiếu : ")
+            st.dataframe(missing_values_before.to_frame().T)
+
+            # Chọn phương pháp xử lý giá trị bị thiếu
+            missing_value_strategy = st.selectbox(
+                "## Chọn phương pháp ", ["mean", "median", "mode", "drop"], index=0
+            )
+
+            # Hàm xử lý dữ liệu bị thiếu
+            def preprocess_data(df, missing_value_strategy):
+                df = df.dropna(subset=['Survived'])  # Bỏ các hàng có giá trị thiếu ở cột mục tiêu
+
+                # Xác định cột số và cột phân loại
+                num_cols = df.select_dtypes(include=['number']).columns
+                cat_cols = df.select_dtypes(exclude=['number']).columns
+
+                # Xử lý giá trị thiếu cho cột số
+                if missing_value_strategy == 'mean':
+                    df[num_cols] = df[num_cols].fillna(df[num_cols].mean())
+                elif missing_value_strategy == 'median':
+                    df[num_cols] = df[num_cols].fillna(df[num_cols].median())
+                elif missing_value_strategy == 'mode':
+                    for col in num_cols:
+                        if not df[col].mode().dropna().empty:
+                            df[col] = df[col].fillna(df[col].mode()[0])
+
+                # Luôn xử lý giá trị thiếu cho Cabin và Embarked
+                df['Cabin'] = df['Cabin'].fillna("Unknown")  # Điền "Unknown" cho Cabin
+                if not df['Embarked'].mode().dropna().empty:
+                    df['Embarked'] = df['Embarked'].fillna(df['Embarked'].mode()[0])  # Điền mode() cho Embarked
+
+                if missing_value_strategy == 'drop':
+                    df.dropna(inplace=True)  # Nếu chọn "drop", xóa hàng còn thiếu
+
+                return df  # Trả về dataframe đã xử lý
+
+            # Gọi hàm xử lý dữ liệu bị thiếu
+            self.data = preprocess_data(self.data, missing_value_strategy)
+
+            # Kiểm tra số lượng dữ liệu bị thiếu sau khi xử lý
+            missing_values_after = self.data.isnull().sum().sum()
+            mlflow.log_metric("missing_values_before", missing_values_before.sum())  # Chuyển thành số tổng
+            mlflow.log_metric("missing_values_after", missing_values_after)
+            st.write("Số lượng giá trị bị thiếu sau xử lý:")
+            st.dataframe(self.data.isnull().sum().to_frame().T)
+
+
+            # Xóa các cột không cần thiết
+            st.write("**3. Xóa các cột không cần thiết**")
+            st.write("""
+            - **Name**: Tên hành khách không ảnh hưởng trực tiếp đến khả năng sống sót.
+            - **Ticket**: Số vé là một chuỗi ký tự không mang ý nghĩa rõ ràng đối với mô hình dự đoán.
+            - **Cabin**: Dữ liệu bị thiếu quá nhiều, rất nhiều hành khách không có thông tin về cabin.
+            """)
+
+            # Cho phép người dùng chọn cột để xóa
+            columns_to_drop = st.multiselect(
+                "Chọn cột để xóa:",
+                self.data.columns.tolist(),  
+                default=['Name', 'Ticket', 'Cabin']  # Gợi ý mặc định
+            )
+
+            # Xóa các cột được chọn
+            self.data.drop(columns=columns_to_drop, inplace=True, errors='ignore')
+
+            # Hiển thị thông tin sau khi xóa cột
+            st.write("Dữ liệu sau khi xóa các cột không cần thiết:")
+            st.dataframe(self.data.head())
+
+            
+            st.write("**4. Mã hóa biến phân loại** ")
+            
+            st.write(""" -Cột Sex:
+                \n'male' → 0
+                \n'female' → 1""")
+            st.write(""" -Cột Embarked:
+                \n'C' → 0
+                \n'Q' → 1
+                \n'S' → 2 """)
+            # Mã hóa biến phân loại 'Sex'
+            if 'Sex' in self.data.columns:
+                self.data['Sex'] = self.data['Sex'].map({'male': 0, 'female': 1})
+
+            # Điền giá trị thiếu cho 'Embarked' và mã hóa
+            if 'Embarked' in self.data.columns:
+                self.data['Embarked'] = self.data['Embarked'].fillna('Unknown')
+
+                # Chỉ mã hóa các giá trị hợp lệ, tránh lỗi khi có giá trị ngoài danh sách
+                embarked_mapping = {'C': 0, 'Q': 1, 'S': 2}
+                self.data['Embarked'] = self.data['Embarked'].map(lambda x: embarked_mapping.get(x, -1))
+
+            # Hiển thị dữ liệu sau khi mã hóa
+            st.write("Dữ liệu sau khi mã hóa:")
+            st.dataframe(self.data.head())
+
+
+            
+            mlflow.end_run()
+            return self.data
+            
         except Exception as e:
-            st.error(f"Đã xảy ra lỗi khi lấy danh sách thí nghiệm: {e}")
+            st.error(f"Lỗi khi tiền xử lý dữ liệu: {str(e)}")
+            mlflow.end_run(status='FAILED')
+            return None
 
-    # 📌 Giao diện Streamlit
-    def main():
-        st.title("🔢 Phân loại chữ số viết tay")
+
+def create_streamlit_app():
+    st.title("Titanic 🚢")
+    
+    # Sử dụng st.tabs để tạo thanh menu
+    tab1, tab2, tab3 = st.tabs([ "🔍 Xử lý và Huấn luyện ","🪄 Dự đoán", "🚀 MLflow"])
+    analyzer = TitanicAnalyzer()
         
-        # # Load dữ liệu
-        X, y = load_data()
-        # Tạo các tab
-        tab1, tab2 ,tab3= st.tabs(["📋 Huấn luyện", "🔮 Dự đoán","⚡ Mlflow"])
-        with tab1:
-            st.write(f"**Số lượng mẫu của bộ dữ liệu MNIST : {X.shape[0]}**")
-            # Hiển thị mẫu dữ liệu và phân phối dữ liệu
-            show_sample_images(X, y)
+    with tab1:
+        data_path = "G:/ML/MLFlow/my_env/titanic.csv"  # Đường dẫn cố định
+        analyzer = TitanicAnalyzer()
+        data = analyzer.load_and_preprocess(data_path)
+        total_samples = len(data) 
+        # Cho phép người dùng chọn tỷ lệ chia dữ liệu
+        st.write("##### 📊 Chọn tỷ lệ chia dữ liệu")
+        train_size = st.slider("Tập huấn luyện (Train)", 0.5, 0.8, 0.7)
+        valid_size = st.slider("Tập kiểm định (Validation)", 0.1, 0.3, 0.15)
+        test_size = 1 - train_size - valid_size
 
-            # So sánh các số tương đồng
-            show_similar_digits(X, y)
+        if test_size < 0:
+            st.error("❌ Tổng tỷ lệ Train và Validation không được vượt quá 1.")
+        else:
+            # Tính số lượng mẫu
+            train_samples = int(train_size * total_samples)
+            valid_samples = int(valid_size * total_samples)
+            test_samples = total_samples - train_samples - valid_samples
 
-            # Cho phép người dùng chọn 2 số và hiển thị sự tương đồng
-            st.write("**🔍 So sánh sự tương đồng giữa 2 số**")
-            st.write("- Các cặp số có sự tương đồng : 0 và 6, 3 và 8, 5 và 6, 4 và 9 , 3 và 5,... ")
-            col1, col2 = st.columns(2)
-            with col1:
-                num1 = st.selectbox("Chọn số thứ nhất", options=list(range(10)), index=0)
-            with col2:
-                num2 = st.selectbox("Chọn số thứ hai", options=list(range(10)), index=1)
-
-            if st.button("🔍 Tính toán sự tương đồng"):
-                # Lấy các mẫu đầu tiên của hai số được chọn
-                idx1 = np.where(y == num1)[0][0]
-                idx2 = np.where(y == num2)[0][0]
-
-                # Lấy ảnh của hai số
-                image1 = X[idx1].reshape(1, -1)
-                image2 = X[idx2].reshape(1, -1)
-
-                # Tính toán cosine similarity
-                similarity = cosine_similarity(image1, image2)[0][0]
-
-                # Hiển thị kết quả
-                st.write(f"🔢 Sự tương đồng giữa số {num1} và số {num2}: **{similarity:.4f}**")
-
-                # Hiển thị ảnh của hai số
-                fig, axes = plt.subplots(1, 2, figsize=(10, 5))
-                axes[0].imshow(image1.reshape(28, 28), cmap='gray')
-                axes[0].set_title(f"Số {num1}")
-                axes[0].axis('off')
-                axes[1].imshow(image2.reshape(28, 28), cmap='gray')
-                axes[1].set_title(f"Số {num2}")
-                axes[1].axis('off')
-                st.pyplot(fig)
-            
-                    # Thêm phần chọn kỹ thuật xử lý ảnh
-            st.write("**🖼️ Xử lý ảnh**")
-            st.markdown("""
-    - **Sobel Operator** giúp làm nổi bật các cạnh trong ảnh bằng cách phát hiện sự thay đổi cường độ pixel.  
-    - **Gaussian Blur** làm mịn ảnh và giảm nhiễu không mong muốn, giúp cải thiện chất lượng hình ảnh trước khi xử lý tiếp theo.  
-    """)
-            
-            # Chọn kỹ thuật xử lý ảnh
-            selected_preprocessing = st.multiselect(
-            "Chọn kỹ thuật xử lý dữ liệu:",
-            options=["Sobel", "Gaussian Blur"],
-            default=["Sobel", "Gaussian Blur"]
-    )
-            
-            # Chọn một ảnh ngẫu nhiên từ tập dữ liệu
-            random_idx = np.random.choice(len(X))
-            original_image = X[random_idx].reshape(28, 28)
-            
-            processed_image = preprocess_image(original_image, selected_preprocessing) if selected_preprocessing else original_image
-
-            col1, col2 = st.columns(2)
-
-        
-            with col1:
-                st.image(original_image, width=50, caption=f"Số {y[random_idx]}", use_container_width=True, clamp=True)
-
-            with col2:
-                st.image(processed_image, width=50, caption="Ảnh sau xử lý", use_container_width=True, clamp=True)
-            
-            
-                # Chọn tỷ lệ dữ liệu huấn luyện, validation, và test
-            train_size = st.slider("Tỷ lệ huấn luyện (%)", min_value=50, max_value=90, value=70, step=5)
-            val_size = st.slider("Tỷ lệ validation (%)", min_value=5, max_value=30, value=15, step=5)
-            test_size = 100 - train_size - val_size
-            
-            # Kiểm tra tỷ lệ hợp lệ
-            if test_size <= 0:
-                st.error("Tỷ lệ không hợp lệ! Vui lòng điều chỉnh lại.")
-                return
-            
-            # Load dữ liệu
-            X, y = load_data()
-            # Lưu tỷ lệ dữ liệu vào session state
-            st.session_state.train_size = train_size
-            st.session_state.val_size = val_size
-            st.session_state.test_size = test_size
-            # Chia dữ liệu
-            X_train, X_val, X_test, y_train, y_val, y_test = split_data(
-                X, y, train_size=train_size/100, val_size=val_size/100, test_size=test_size/100)
-
-            data_ratios = pd.DataFrame({
-            "Tập dữ liệu": ["Train", "Validation", "Test"],
-            "Tỷ lệ (%)": [st.session_state.train_size, st.session_state.val_size, st.session_state.test_size]
+            # Tạo DataFrame hiển thị kết quả
+            split_df = pd.DataFrame({
+                "Tập dữ liệu": ["Train", "Validation", "Test"],
+                "Tỷ lệ (%)": [f"{train_size * 100:.2f}", f"{valid_size * 100:.2f}", f"{test_size * 100:.2f}"],
+                "Số lượng mẫu": [train_samples, valid_samples, test_samples]
             })
 
-            # Hiển thị bảng
-            st.write("**📊 Tỷ lệ dữ liệu**")
-            st.table(data_ratios)
+            # Hiển thị bảng kết quả
+            st.write("📋 **Tỷ lệ chia dữ liệu và số lượng mẫu:**")
+            st.table(split_df)
 
-            # Hiển thị số lượng mẫu
-            st.write(f"🧮 Số lượng mẫu train: {len(X_train)}")
-            st.write(f"🧮 Số lượng mẫu validation: {len(X_val)}")
-            st.write(f"🧮 Số lượng mẫu test: {len(X_test)}")
+        # Hiển thị kết quả trong Streamlit
+        st.write("##### 📊 **Huấn luyện mô hình hồi quy**")
+        # Lựa chọn mô hình
+        regression_type = st.radio("Chọn loại hồi quy:", ["Multiple Regression", "Polynomial Regression"])
 
+        # Chọn bậc của Polynomial Regression (chỉ hiển thị nếu chọn Polynomial)
+        degree = None
+        if regression_type == "Polynomial Regression":
+            degree = st.slider("Chọn bậc của hồi quy đa thức:", min_value=2, max_value=5, value=2)
 
+        # Load dữ liệu và chia train/valid/test
+        X = data.drop(columns=["Survived"])
+        y = data["Survived"]
 
-            st.write("**🚀 Huấn luyện mô hình**")
-            model_name = st.selectbox("🔍 Chọn mô hình", ["Decision Tree", "SVM"])
-            # Huấn luyện mô hình
-            if st.button("🚀 Huấn luyện mô hình"):
-                with st.spinner("🔄 Đang huấn luyện..."):
-                    model, train_accuracy, val_accuracy, test_accuracy = train_model(
-                    model_name, X_train, X_val, X_test, y_train, y_val, y_test
-                )
-                st.success(f"✅ Huấn luyện xong!")
-                
-                # Hiển thị độ chính xác trên cả 3 tập dữ liệu
-                st.write(f"🎯 **Độ chính xác trên tập train: {train_accuracy:.4f}**")
-                st.write(f"🎯 **Độ chính xác trên tập validation: {val_accuracy:.4f}**")
-                st.write(f"🎯 **Độ chính xác trên tập test: {test_accuracy:.4f}**")
+        X_train, X_temp, y_train, y_temp = train_test_split(X, y, train_size=train_size, random_state=42)
+        X_valid, X_test, y_valid, y_test = train_test_split(X_temp, y_temp, train_size=valid_size / (valid_size + test_size), random_state=42)
 
-        with tab2:
-            # Chọn phương thức nhập ảnh
-            option = st.radio("🖼️ Chọn phương thức nhập:", ["📂 Tải ảnh lên", "✏️ Vẽ số"])
+        # Chuẩn hóa dữ liệu
+        scaler = StandardScaler()
+        X_train_scaled = scaler.fit_transform(X_train)
+        X_valid_scaled = scaler.transform(X_valid)
+        X_test_scaled = scaler.transform(X_test)
 
-            # 📂 Xử lý ảnh tải lên
-            if option == "📂 Tải ảnh lên":
-                uploaded_file = st.file_uploader("📤 Tải ảnh số viết tay (PNG, JPG)", type=["png", "jpg", "jpeg"])
+        # Lưu scaler vào session_state
+        st.session_state["scaler"] = scaler
 
-                if uploaded_file is not None:
-                    image = cv2.imdecode(np.frombuffer(uploaded_file.read(), np.uint8), cv2.IMREAD_COLOR)
-                    processed_image = preprocess_uploaded_image(image)
-    
-                    # Hiển thị ảnh
-                    st.image(image, caption="📷 Ảnh tải lên", use_column_width=True)
+        with mlflow.start_run():
+            # Chọn mô hình dựa trên loại hồi quy
+            if regression_type == "Polynomial Regression":
+                poly = PolynomialFeatures(degree=degree)
+                X_train_poly = poly.fit_transform(X_train_scaled)
+                X_valid_poly = poly.transform(X_valid_scaled)
+                X_test_poly = poly.transform(X_test_scaled)
 
-                    # Dự đoán số
-                    if st.button("🔮 Dự đoán"):
-                        model, _ = train_model(model_name, X_train, X_val, X_test, y_train, y_val, y_test)
-                        prediction = model.predict(processed_image)[0]
-                        probabilities = model.predict_proba(processed_image)[0]
+                model = LinearRegression()
+                model.fit(X_train_poly, y_train)
 
-                        st.write(f"🎯 **Dự đoán: {prediction}**")
-                        prob_df = pd.DataFrame({"Chữ số": list(range(10)), "Xác suất (%)": probabilities * 100})
-                        st.bar_chart(prob_df.set_index("Chữ số"))
+                y_pred_train = model.predict(X_train_poly)
+                y_pred_valid = model.predict(X_valid_poly)
+                y_pred_test = model.predict(X_test_poly)
 
-                        # 📌 Hiển thị các số có thể bị nhầm lẫn
-                        top_similar_numbers = get_top_similar_numbers(probabilities, top_n=3)
-                        st.write("🤔 **Số có thể bị nhầm lẫn:**")
-                        for num, prob in top_similar_numbers:
-                            st.write(f"🔹 {num} ({prob*100:.2f}%)")
+            else:  # Multiple Regression
+                model = LinearRegression()
+                model.fit(X_train_scaled, y_train)
 
-            # ✏️ Vẽ số trên canvas
-            elif option == "✏️ Vẽ số":
-                canvas_result = st_canvas(
-                    fill_color="white",
-                    stroke_width=15,
-                    stroke_color="black",
-                    background_color="white",
-                    width=280,
-                    height=280,
-                    drawing_mode="freedraw",
-                    key="canvas"
-                )
+                y_pred_train = model.predict(X_train_scaled)
+                y_pred_valid = model.predict(X_valid_scaled)
+                y_pred_test = model.predict(X_test_scaled)
 
-                if st.button("🔮 Dự đoán"):
-                    if canvas_result.image_data is not None:
-                        processed_canvas = preprocess_canvas_image(canvas_result.image_data)
+            # Lưu mô hình vào session_state
+            st.session_state["model"] = model
+            if regression_type == "Polynomial Regression":
+                st.session_state["poly"] = poly
 
-                        model, _ = train_model(model_name, X_train, X_val, y_train, y_val)
-                        prediction = model.predict(processed_canvas)[0]
-                        probabilities = model.predict_proba(processed_canvas)[0]
+            # Tính toán metrics
+            mse_train = mean_squared_error(y_train, y_pred_train)
+            mse_valid = mean_squared_error(y_valid, y_pred_valid)
+            mse_test = mean_squared_error(y_test, y_pred_test)
 
-                        st.write(f"🎯 **Dự đoán: {prediction}**")
-                        prob_df = pd.DataFrame({"Chữ số": list(range(10)), "Xác suất (%)": probabilities * 100})
-                        st.bar_chart(prob_df.set_index("Chữ số"))
+            r2_train = r2_score(y_train, y_pred_train)
+            r2_valid = r2_score(y_valid, y_pred_valid)
+            r2_test = r2_score(y_test, y_pred_test)
 
-                        # 📌 Hiển thị các số có thể bị nhầm lẫn
-                        top_similar_numbers = get_top_similar_numbers(probabilities, top_n=3)
-                        st.write("🤔 **Số có thể bị nhầm lẫn:**")
-                        for num, prob in top_similar_numbers:
-                            st.write(f"🔹 {num} ({prob*100:.2f}%)")
+            # Cross-validation
+            y_pred_cv = cross_val_predict(model, X_train_scaled, y_train, cv=5)
+            mse_cv = mean_squared_error(y_train, y_pred_cv)
 
-        with tab3:
-            st.write("### 📊 Tracking MLflow")
+            # Ghi log vào MLflow
+            mlflow.log_metrics({
+                "train_mse": mse_train,
+                "valid_mse": mse_valid,
+                "test_mse": mse_test,
+                "cv_mse": mse_cv
+            })
+
+            st.write(f"**Loại hồi quy đang sử dụng:** {regression_type}")
             
-            try:
-                # Lấy danh sách thí nghiệm từ MLflow
-                experiments = mlflow.search_experiments()
+            results_df = pd.DataFrame({
+                "Metric": ["MSE (Train)", "MSE (Validation)", "MSE (Test)", "MSE (Cross-Validation)"],
+                "Value": [mse_train, mse_valid, mse_test, mse_cv]
+            })
+
+            st.write("**📌 Kết quả đánh giá mô hình:**")
+            st.table(results_df)
+    with tab2 :             
+            # Prediction interface
+            st.subheader("Giao diện dự đoán")
+# Kiểm tra nếu mô hình đã huấn luyện trước khi dự đoán
+            if 'model' in st.session_state and 'scaler' in st.session_state:
+                analyzer.model = st.session_state['model']
+                analyzer.scaler = st.session_state['scaler']
+                if regression_type == "Polynomial Regression":
+                    analyzer.poly = st.session_state['poly']
+                analyzer.is_fitted = True
+            else:
+                st.error("Vui lòng huấn luyện mô hình trước khi dự đoán!")
+
+            if analyzer.is_fitted:
+                col1, col2 = st.columns(2)
+
+                with col1:
+                    pclass = st.selectbox("Passenger Class", [1, 2, 3])
+                    age = st.number_input("Age", 0, 100, 30)
+                    sex = st.selectbox("Sex", ["male", "female"])
                 
-                if experiments:
-                    st.write("#### Danh sách thí nghiệm")
-                    experiment_data = []
-                    for exp in experiments:
-                        experiment_data.append({
-                            "Experiment ID": exp.experiment_id,
-                            "Experiment Name": exp.name,
-                            "Artifact Location": exp.artifact_location
-                        })
-                    st.dataframe(pd.DataFrame(experiment_data))
+                with col2:
+                    sibsp = st.number_input("Siblings/Spouses", 0, 10, 0)
+                    parch = st.number_input("Parents/Children", 0, 10, 0)
+                    fare = st.number_input("Fare", 0.0, 500.0, 32.0)
+                    embarked = st.selectbox("Port of Embarkation", ['C', 'Q', 'S'])
+                
+                if st.button("Predict"):
+                    # Mã hóa dữ liệu đầu vào
+                    sex_encoded = 1 if sex == "female" else 0  # Mã hóa Sex: male -> 0, female -> 1
+                    embarked_encoded = {'C': 0, 'Q': 1, 'S': 2}.get(embarked, -1)  # Mã hóa Embarked
+
+                    # Tạo DataFrame đầu vào
+                    input_data = pd.DataFrame({
+                        'Pclass': [pclass],
+                        'Age': [age],
+                        'SibSp': [sibsp],
+                        'Parch': [parch],
+                        'Fare': [fare],
+                        'Sex': [sex_encoded],
+                        'Embarked': [embarked_encoded]
+                    })
+
+                    # Scale dữ liệu đầu vào
+                    input_scaled = st.session_state['scaler'].transform(input_data)
                     
-                    # Chọn thí nghiệm để xem chi tiết
-                    selected_exp_id = st.selectbox(
-                        "🔍 Chọn thí nghiệm để xem chi tiết",
-                        options=[exp.experiment_id for exp in experiments]
-                    )
-                    
-                    # Lấy danh sách runs trong thí nghiệm đã chọn
-                    runs = mlflow.search_runs(selected_exp_id)
-                    if not runs.empty:
-                        st.write("#### Danh sách runs")
-                        st.dataframe(runs)
-                        
-                        # Chọn run để xem chi tiết
-                        selected_run_id = st.selectbox(
-                            "🔍 Chọn run để xem chi tiết",
-                            options=runs["run_id"]
-                        )
-                        
-                        # Hiển thị chi tiết run
-                        run = mlflow.get_run(selected_run_id)
-                        st.write("##### Thông tin run")
-                        st.write(f"**Run ID:** {run.info.run_id}")
-                        st.write(f"**Experiment ID:** {run.info.experiment_id}")
-                        st.write(f"**Start Time:** {run.info.start_time}")
-                        
-                        # Hiển thị metrics
-                        st.write("##### Metrics")
-                        st.json(run.data.metrics)
-                        
-                        # Hiển thị params
-                        st.write("##### Params")
-                        st.json(run.data.params)
-                        
-                        # Hiển thị artifacts
-                        artifacts = mlflow.list_artifacts(selected_run_id)
-                        if artifacts:
-                            st.write("##### Artifacts")
-                            for artifact in artifacts:
-                                st.write(f"- {artifact.path}")
+                    # Kiểm tra xem mô hình có sử dụng PolynomialFeatures không
+                    if regression_type == "Polynomial Regression":
+                        input_transformed = st.session_state['poly'].transform(input_scaled)
                     else:
-                        st.warning("Không có runs nào trong thí nghiệm này.")
-                else:
-                    st.warning("Không có thí nghiệm nào được tìm thấy.")
-            except Exception as e:
-                st.error(f"Đã xảy ra lỗi khi lấy danh sách thí nghiệm: {e}")
+                        input_transformed = input_scaled
+
+                    # Dự đoán
+                    prediction = st.session_state['model'].predict(input_transformed)[0]
+                    
+                    # Hiển thị kết quả
+                    st.success(f"Dự đoán : {'Survived' if prediction == 1 else 'Not Survived'}")
+
+    with tab3:
+        # Hiển thị MLflow Tracking UI trong iframe
+        mlflow_url = "http://localhost:5000"  # Thay đổi nếu chạy trên server khác
+        st.markdown(f'<iframe src="{mlflow_url}" width="800" height="400"></iframe>', unsafe_allow_html=True)
 
 if __name__ == "__main__":
-    main()
+    create_streamlit_app()
